@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { z } from "zod";
 import { pool, q } from "@/lib/db";
 import { HttpError, ok, route, userId } from "@/lib/http";
