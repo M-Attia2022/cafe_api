@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { q } from "@/lib/db";
 import { HttpError, ok, route } from "@/lib/http";
 
