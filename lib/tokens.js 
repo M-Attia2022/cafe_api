@@ -1,0 +1,31 @@
+import crypto from "crypto";
+import { q } from "@/lib/db";
+import { signToken } from "@/lib/http";
+
+const REFRESH_DAYS = 60;
+const hash = (t) => crypto.createHash("sha256").update(t).digest("hex");
+
+// access token (short) + refresh token (long, stored hashed in the DB)
+export async function issueTokens(userId) {
+  const refresh = crypto.randomBytes(48).toString("base64url");
+  await q("DELETE FROM refresh_tokens WHERE expires_at < now()");
+  await q(
+    `INSERT INTO refresh_tokens(user_id,token_hash,expires_at)
+     VALUES($1,$2, now() + interval '${REFRESH_DAYS} days')`,
+    [userId, hash(refresh)]
+  );
+  return { token: await signToken(userId), refresh_token: refresh };
+}
+
+// one-time use: the old refresh token is deleted and a new pair is issued
+export async function rotateRefresh(refresh) {
+  const [row] = await q(
+    "DELETE FROM refresh_tokens WHERE token_hash=$1 RETURNING user_id, expires_at",
+    [hash(refresh)]
+  );
+  if (!row || new Date(row.expires_at) < new Date()) return null;
+  return issueTokens(row.user_id);
+}
+
+export const revokeRefresh = (refresh) =>
+  q("DELETE FROM refresh_tokens WHERE token_hash=$1", [hash(refresh)]);
