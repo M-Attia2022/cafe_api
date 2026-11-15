@@ -6,17 +6,21 @@ import { HttpError, ok, route, userId } from "@/lib/http";
 export const GET = route(async (req) => {
   const uid = await userId(req);
   return ok(await q(
-    `SELECT id,status,total,created_at,
+    `SELECT id,status,order_type,total,created_at,
             (SELECT string_agg(quantity||'x '||product_name, ', ') FROM order_items WHERE order_id=orders.id) AS summary
      FROM orders WHERE user_id=$1 ORDER BY id DESC`, [uid]));
 });
 
-// Checkout: turns the current cart into an order
 export const POST = route(async (req) => {
   const uid = await userId(req);
   const b = z.object({
-    address: z.string().min(3).max(250),
+    order_type: z.enum(["pickup", "delivery"]).default("pickup"),
+    // استلام: مكان الطاولة في الكافيه، توصيل: عنوان العميل
+    address: z.string().trim().min(1).max(250),
     payment_method: z.enum(["cash", "card"]).default("cash"),
+  }).refine((v) => v.order_type === "pickup" || v.address.length >= 3, {
+    message: "address is too short",
+    path: ["address"],
   }).parse(await req.json());
 
   const c = await pool.connect();
@@ -28,8 +32,8 @@ export const POST = route(async (req) => {
     if (!items.length) throw new HttpError(400, "Cart is empty");
     const total = items.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
     const o = (await c.query(
-      "INSERT INTO orders(user_id,total,address,payment_method) VALUES($1,$2,$3,$4) RETURNING id,status,total",
-      [uid, total, b.address, b.payment_method])).rows[0];
+      "INSERT INTO orders(user_id,total,address,payment_method,order_type) VALUES($1,$2,$3,$4,$5) RETURNING id,status,total,order_type",
+      [uid, total, b.address, b.payment_method, b.order_type])).rows[0];
     for (const i of items)
       await c.query("INSERT INTO order_items(order_id,product_id,product_name,price,quantity) VALUES($1,$2,$3,$4,$5)",
         [o.id, i.id, i.name, i.price, i.quantity]);
